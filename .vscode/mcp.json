@@ -1,0 +1,32 @@
+{
+  "servers": {
+    "microsoft-learn": {
+      "type": "http",
+      "url": "https://learn.microsoft.com/api/mcp"
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    },
+    "avm-modules": {
+      "type": "http",
+      "url": "https://aca-avm-modules-7lsy3ktbwwv4k.gentlesmoke-c986cedd.uksouth.azurecontainerapps.io/mcp"
+    },
+    "azure-pricing": {
+      "type": "http",
+      "url": "https://aca-azure-pricing-7lsy3ktbwwv4k.gentlesmoke-c986cedd.uksouth.azurecontainerapps.io/mcp"
+    },
+    "markitdown": {
+      "type": "http",
+      "url": "https://aca-markitdown-7lsy3ktbwwv4k.gentlesmoke-c986cedd.uksouth.azurecontainerapps.io/mcp"
+    },
+    "travel-mcp": {
+      "type": "http",
+      "url": "https://YOUR-APIM-GATEWAY-URL/mcp/mcp",
+      "headers": {
+        "Ocp-Apim-Subscription-Key": "YOUR-SUBSCRIPTION-KEY"
+      },
+      "description": "Travel MCP Server - flights, weather, attractions, restaurants"
+    }
+  }
+}

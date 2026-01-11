@@ -1,0 +1,74 @@
+# GitHub Actions workflow for deploying Travel MCP Server to Azure
+
+name: Deploy to Azure
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20.x'
+  RESOURCE_GROUP: 'travel-mcp-rg'
+  LOCATION: 'eastus'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Build application
+      run: npm run build
+    
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    
+    - name: Create Resource Group
+      run: |
+        az group create \
+          --name ${{ env.RESOURCE_GROUP }} \
+          --location ${{ env.LOCATION }}
+    
+    - name: Deploy Infrastructure
+      uses: azure/arm-deploy@v1
+      id: deploy-infra
+      with:
+        resourceGroupName: ${{ env.RESOURCE_GROUP }}
+        template: ./infra/main.bicep
+        parameters: >
+          ./infra/main.parameters.json
+          publisherEmail=${{ secrets.APIM_PUBLISHER_EMAIL }}
+          publisherName=${{ secrets.APIM_PUBLISHER_NAME }}
+        deploymentName: 'travel-mcp-${{ github.run_number }}'
+    
+    - name: Create deployment package
+      run: |
+        zip -r deploy.zip dist/ node_modules/ package.json
+    
+    - name: Deploy to Web App
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ steps.deploy-infra.outputs.webAppName }}
+        package: deploy.zip
+    
+    - name: Display deployment info
+      run: |
+        echo "🚀 Deployment completed successfully!"
+        echo "Web App URL: ${{ steps.deploy-infra.outputs.webAppUrl }}"
+        echo "APIM Gateway URL: ${{ steps.deploy-infra.outputs.apimGatewayUrl }}"
+        echo "MCP API Path: ${{ steps.deploy-infra.outputs.mcpApiPath }}"
