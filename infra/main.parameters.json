@@ -6,13 +6,10 @@
       "value": "dev"
     },
     "location": {
-      "value": "eastus"
+      "value": "westus"
     },
     "resourcePrefix": {
       "value": "travel-mcp"
-    },
-    "appServicePlanSku": {
-      "value": "F1"
     },
     "apimSku": {
       "value": "Developer"
@@ -34,6 +31,9 @@
     },
     "tripAdvisorReferer": {
       "value": ""
+    },
+    "containerImageTag": {
+      "value": "latest"
     }
   }
 }

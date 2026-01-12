@@ -8,21 +8,6 @@ param location string = resourceGroup().location
 @description('The name prefix for all resources')
 param resourcePrefix string = 'travel-mcp'
 
-@description('The App Service Plan SKU')
-@allowed([
-  'F1'
-  'B1'
-  'B2'
-  'B3'
-  'S1'
-  'S2'
-  'S3'
-  'P1v2'
-  'P2v2'
-  'P3v2'
-])
-param appServicePlanSku string = 'F1'
-
 @description('The APIM SKU')
 @allowed([
   'Consumption'
@@ -54,10 +39,14 @@ param tripAdvisorApiKey string = ''
 @description('TripAdvisor Referer URL')
 param tripAdvisorReferer string = ''
 
+@description('Container image tag')
+param containerImageTag string = 'latest'
+
 // Variables
 var uniqueSuffix = uniqueString(resourceGroup().id)
-var appServicePlanName = '${resourcePrefix}-asp-${environmentName}-${uniqueSuffix}'
-var webAppName = '${resourcePrefix}-webapp-${environmentName}-${uniqueSuffix}'
+var containerAppEnvName = '${resourcePrefix}-env-${environmentName}-${uniqueSuffix}'
+var containerAppName = '${resourcePrefix}-app-${environmentName}-${uniqueSuffix}'
+var acrName = 'travelmcp${environmentName}${uniqueSuffix}'
 var apimName = '${resourcePrefix}-apim-${environmentName}-${uniqueSuffix}'
 var logAnalyticsName = '${resourcePrefix}-logs-${environmentName}-${uniqueSuffix}'
 var appInsightsName = '${resourcePrefix}-ai-${environmentName}-${uniqueSuffix}'
@@ -85,72 +74,131 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
-// App Service Plan
-resource appServicePlan 'Microsoft.Web/serverfarms@2022-09-01' = {
-  name: appServicePlanName
+// Azure Container Registry
+resource acr 'Microsoft.ContainerRegistry/registries@2023-01-01-preview' = {
+  name: acrName
   location: location
   sku: {
-    name: appServicePlanSku
+    name: 'Basic'
   }
-  kind: 'linux'
   properties: {
-    reserved: true
+    adminUserEnabled: true
   }
 }
 
-// Web App
-resource webApp 'Microsoft.Web/sites@2022-09-01' = {
-  name: webAppName
+// Container Apps Environment
+resource containerAppEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
+  name: containerAppEnvName
   location: location
-  kind: 'app,linux'
   properties: {
-    serverFarmId: appServicePlan.id
-    httpsOnly: true
-    siteConfig: {
-      linuxFxVersion: 'NODE|20-lts'
-      alwaysOn: true
-      ftpsState: 'Disabled'
-      minTlsVersion: '1.2'
-      http20Enabled: true
-      appSettings: [
+    appLogsConfiguration: {
+      destination: 'log-analytics'
+      logAnalyticsConfiguration: {
+        customerId: logAnalytics.properties.customerId
+        sharedKey: logAnalytics.listKeys().primarySharedKey
+      }
+    }
+  }
+}
+
+// Container App
+resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
+  name: containerAppName
+  location: location
+  properties: {
+    managedEnvironmentId: containerAppEnv.id
+    configuration: {
+      ingress: {
+        external: true
+        targetPort: 3000
+        allowInsecure: false
+        traffic: [
+          {
+            latestRevision: true
+            weight: 100
+          }
+        ]
+      }
+      registries: [
         {
-          name: 'WEBSITE_NODE_DEFAULT_VERSION'
-          value: '~20'
-        }
-        {
-          name: 'HTTP_MODE'
-          value: 'true'
-        }
-        {
-          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-          value: appInsights.properties.ConnectionString
-        }
-        {
-          name: 'ApplicationInsightsAgent_EXTENSION_VERSION'
-          value: '~3'
-        }
-        {
-          name: 'SKYSCANNER_API_KEY'
-          value: skyscannerApiKey
-        }
-        {
-          name: 'MET_OFFICE_API_KEY'
-          value: metOfficeApiKey
-        }
-        {
-          name: 'TRIPADVISOR_API_KEY'
-          value: tripAdvisorApiKey
-        }
-        {
-          name: 'TRIPADVISOR_REFERER'
-          value: tripAdvisorReferer != '' ? tripAdvisorReferer : 'https://${webAppName}.azurewebsites.net'
+          server: acr.properties.loginServer
+          username: acr.listCredentials().username
+          passwordSecretRef: 'acr-password'
         }
       ]
-      cors: {
-        allowedOrigins: [
-          '*'
+      secrets: [
+        {
+          name: 'acr-password'
+          value: acr.listCredentials().passwords[0].value
+        }
+        {
+          name: 'skyscanner-api-key'
+          value: skyscannerApiKey != '' ? skyscannerApiKey : 'not-configured'
+        }
+        {
+          name: 'metoffice-api-key'
+          value: metOfficeApiKey != '' ? metOfficeApiKey : 'not-configured'
+        }
+        {
+          name: 'tripadvisor-api-key'
+          value: tripAdvisorApiKey != '' ? tripAdvisorApiKey : 'not-configured'
+        }
+        {
+          name: 'appinsights-connection-string'
+          value: appInsights.properties.ConnectionString
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'travel-mcp-server'
+          image: '${acr.properties.loginServer}/travel-mcp:${containerImageTag}'
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+          env: [
+            {
+              name: 'HTTP_MODE'
+              value: 'true'
+            }
+            {
+              name: 'SKYSCANNER_API_KEY'
+              secretRef: 'skyscanner-api-key'
+            }
+            {
+              name: 'MET_OFFICE_API_KEY'
+              secretRef: 'metoffice-api-key'
+            }
+            {
+              name: 'TRIPADVISOR_API_KEY'
+              secretRef: 'tripadvisor-api-key'
+            }
+            {
+              name: 'TRIPADVISOR_REFERER'
+              value: tripAdvisorReferer != '' ? tripAdvisorReferer : 'https://${containerAppName}.${containerAppEnv.properties.defaultDomain}'
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+              secretRef: 'appinsights-connection-string'
+            }
+          ]
+        }
+      ]
+      scale: {
+        minReplicas: 0
+        maxReplicas: 10
+        rules: [
+          {
+            name: 'http-scaling'
+            http: {
+              metadata: {
+                concurrentRequests: '10'
+              }
+            }
+          }
         ]
-        supportCredentials: false
       }
     }
   }
@@ -195,7 +243,7 @@ resource mcpApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = {
       'https'
     ]
     subscriptionRequired: true
-    serviceUrl: 'https://${webApp.properties.defaultHostName}'
+    serviceUrl: 'https://${containerApp.properties.configuration.ingress.fqdn}'
     subscriptionKeyParameterNames: {
       header: 'Ocp-Apim-Subscription-Key'
       query: 'subscription-key'
@@ -260,7 +308,6 @@ resource mcpApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01-
 <policies>
   <inbound>
     <base />
-    <set-backend-service base-url="https://${webApp.properties.defaultHostName}" />
     <cors allow-credentials="false">
       <allowed-origins>
         <origin>*</origin>
@@ -328,8 +375,10 @@ resource productApi 'Microsoft.ApiManagement/service/products/apis@2023-05-01-pr
 }
 
 // Outputs
-output webAppUrl string = 'https://${webApp.properties.defaultHostName}'
-output webAppName string = webApp.name
+output containerAppUrl string = 'https://${containerApp.properties.configuration.ingress.fqdn}'
+output containerAppName string = containerApp.name
+output acrLoginServer string = acr.properties.loginServer
+output acrName string = acr.name
 output apimGatewayUrl string = apim.properties.gatewayUrl
 output apimName string = apim.name
 output mcpApiPath string = '${apim.properties.gatewayUrl}/mcp'

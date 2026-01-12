@@ -22,9 +22,9 @@
     },
     "travel-mcp": {
       "type": "http",
-      "url": "https://YOUR-APIM-GATEWAY-URL/mcp/mcp",
+      "url": "https://travel-mcp-apim-dev-f2yqszbib3cbm.azure-api.net/mcp/mcp",
       "headers": {
-        "Ocp-Apim-Subscription-Key": "YOUR-SUBSCRIPTION-KEY"
+        "Ocp-Apim-Subscription-Key": "5162cbea07f347c5ba9f5de57d64a913"
       },
       "description": "Travel MCP Server - flights, weather, attractions, restaurants"
     }

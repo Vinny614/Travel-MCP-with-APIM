@@ -11,7 +11,7 @@ echo "🔧 Setting up Travel MCP Server configuration..."
 RESOURCE_GROUP="${RESOURCE_GROUP:-travel-mcp-rg}"
 
 echo "📡 Getting APIM information..."
-APIM_NAME=$(az apim list --resource-group $RESOURCE_GROUP --query "[0].name" -o tsv)
+APIM_NAME=$(az resource list --resource-group $RESOURCE_GROUP --resource-type Microsoft.ApiManagement/service --query "[0].name" -o tsv)
 
 if [ -z "$APIM_NAME" ]; then
     echo "❌ Error: Could not find APIM service in resource group $RESOURCE_GROUP"
@@ -19,23 +19,11 @@ if [ -z "$APIM_NAME" ]; then
     exit 1
 fi
 
-APIM_GATEWAY=$(az apim show --resource-group $RESOURCE_GROUP --name $APIM_NAME --query gatewayUrl -o tsv | sed 's|https://||')
+APIM_GATEWAY=$(az resource show --ids "/subscriptions/$(az account show --query id -o tsv)/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME" --query properties.gatewayUrl -o tsv | sed 's|https://||')
 
 echo "🔑 Getting subscription key..."
-SUBSCRIPTION_ID=$(az apim subscription list --resource-group $RESOURCE_GROUP --service-name $APIM_NAME --query "[?contains(displayName, 'Travel') || contains(displayName, 'travel')].name" -o tsv | head -n 1)
-
-if [ -z "$SUBSCRIPTION_ID" ]; then
-    echo "⚠️  Warning: Could not find Travel MCP product subscription"
-    echo "   Looking for any subscription..."
-    SUBSCRIPTION_ID=$(az apim subscription list --resource-group $RESOURCE_GROUP --service-name $APIM_NAME --query "[0].name" -o tsv)
-fi
-
-SUBSCRIPTION_KEY=$(az apim subscription show \
-  --resource-group $RESOURCE_GROUP \
-  --service-name $APIM_NAME \
-  --sid $SUBSCRIPTION_ID \
-  --query primaryKey \
-  -o tsv)
+# Get the built-in all-access subscription (master key)
+SUBSCRIPTION_KEY=$(az rest --method post --url "https://management.azure.com/subscriptions/$(az account show --query id -o tsv)/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME/subscriptions/master/listSecrets?api-version=2023-05-01-preview" --query primaryKey -o tsv)
 
 # Preserve existing MCP servers and add travel-mcp
 echo "📝 Updating .vscode/mcp.json..."

@@ -304,9 +304,16 @@ class TravelMCPServer {
         }
 
         if (name === 'get_destination_info') {
+          if (!args || !args.destination) {
+            return {
+              content: [{ type: 'text', text: 'Missing required argument: destination' }],
+              isError: true,
+            };
+          }
+          
           const destination = destinations.find(
-            d => d.id === args.destination?.toLowerCase() || 
-                 d.name.toLowerCase().includes(args.destination?.toLowerCase() || '')
+            d => d.id === (args.destination as string).toLowerCase() || 
+                 d.name.toLowerCase().includes((args.destination as string).toLowerCase())
           );
 
           if (!destination) {
@@ -332,6 +339,13 @@ class TravelMCPServer {
         }
 
         if (name === 'get_travel_tips') {
+          if (!args || !args.category) {
+            return {
+              content: [{ type: 'text', text: 'Missing required argument: category' }],
+              isError: true,
+            };
+          }
+          
           const category = args.category as keyof typeof travelTips;
           
           if (!travelTips[category]) {
@@ -360,7 +374,7 @@ class TravelMCPServer {
         }
 
         if (name === 'search_destinations') {
-          const query = args.query?.toLowerCase() || '';
+          const query = (args?.query as string)?.toLowerCase() || '';
           const results = destinations.filter(
             d => d.name.toLowerCase().includes(query) || 
                  d.description.toLowerCase().includes(query) ||
@@ -379,13 +393,20 @@ class TravelMCPServer {
 
         // New external API tools
         if (name === 'search_flights') {
+          if (!args || !args.origin || !args.destination || !args.departDate) {
+            return {
+              content: [{ type: 'text', text: 'Missing required arguments: origin, destination, departDate' }],
+              isError: true,
+            };
+          }
+          
           const flights = await this.skyscanner.searchFlights({
-            origin: args.origin,
-            destination: args.destination,
-            departDate: args.departDate,
-            returnDate: args.returnDate,
-            adults: args.adults,
-            cabinClass: args.cabinClass,
+            origin: args.origin as string,
+            destination: args.destination as string,
+            departDate: args.departDate as string,
+            returnDate: args.returnDate as string | undefined,
+            adults: args.adults as number | undefined,
+            cabinClass: args.cabinClass as 'economy' | 'premium_economy' | 'business' | 'first' | undefined,
           });
 
           return {
@@ -402,9 +423,16 @@ class TravelMCPServer {
         }
 
         if (name === 'get_weather_forecast') {
+          if (!args || !args.location) {
+            return {
+              content: [{ type: 'text', text: 'Missing required argument: location' }],
+              isError: true,
+            };
+          }
+          
           const forecast = await this.metOffice.getForecast(
-            args.location,
-            args.days || 5
+            args.location as string,
+            (args.days as number) || 5
           );
 
           return {
@@ -418,9 +446,16 @@ class TravelMCPServer {
         }
 
         if (name === 'search_attractions') {
+          if (!args || !args.location) {
+            return {
+              content: [{ type: 'text', text: 'Missing required argument: location' }],
+              isError: true,
+            };
+          }
+          
           const attractions = await this.tripAdvisor.searchAttractions(
-            args.location,
-            args.category
+            args.location as string,
+            args.category as string | undefined
           );
 
           return {
@@ -434,9 +469,16 @@ class TravelMCPServer {
         }
 
         if (name === 'search_restaurants') {
+          if (!args || !args.location) {
+            return {
+              content: [{ type: 'text', text: 'Missing required argument: location' }],
+              isError: true,
+            };
+          }
+          
           const restaurants = await this.tripAdvisor.searchRestaurants(
-            args.location,
-            args.cuisine
+            args.location as string,
+            args.cuisine as string | undefined
           );
 
           return {

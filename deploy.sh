@@ -91,33 +91,41 @@ deploy_infrastructure() {
     print_info "Infrastructure deployment completed."
 }
 
-# Build and deploy application
-deploy_application() {
+# Build and push container image
+build_and_push_container() {
     local RG_NAME=$1
-    local WEB_APP_NAME=$2
+    local ACR_NAME=$2
     
     print_info "Building application..."
     npm install
     npm run build
     
-    print_info "Creating deployment package..."
-    # Create a zip file with the necessary files
-    if [ -f deploy.zip ]; then
-        rm deploy.zip
-    fi
+    print_info "Getting ACR login credentials..."
+    ACR_LOGIN_SERVER=$(az acr show --name "$ACR_NAME" --resource-group "$RG_NAME" --query loginServer -o tsv)
     
-    zip -r deploy.zip dist/ node_modules/ package.json
+    print_info "Logging into Azure Container Registry: $ACR_LOGIN_SERVER"
+    az acr login --name "$ACR_NAME"
     
-    print_info "Deploying application to Web App: $WEB_APP_NAME..."
-    az webapp deployment source config-zip \
+    print_info "Building and pushing Docker image..."
+    docker build -t "${ACR_LOGIN_SERVER}/travel-mcp:latest" .
+    docker push "${ACR_LOGIN_SERVER}/travel-mcp:latest"
+    
+    print_info "Container image pushed successfully."
+}
+
+# Update container app with new image
+update_container_app() {
+    local RG_NAME=$1
+    local CONTAINER_APP_NAME=$2
+    local ACR_LOGIN_SERVER=$3
+    
+    print_info "Updating Container App with new image..."
+    az containerapp update \
+        --name "$CONTAINER_APP_NAME" \
         --resource-group "$RG_NAME" \
-        --name "$WEB_APP_NAME" \
-        --src deploy.zip
+        --image "${ACR_LOGIN_SERVER}/travel-mcp:latest"
     
-    print_info "Application deployed successfully."
-    
-    # Clean up
-    rm deploy.zip
+    print_info "Container App updated successfully."
 }
 
 # Get deployment outputs
@@ -126,10 +134,10 @@ get_outputs() {
     
     print_info "Retrieving deployment outputs..."
     
-    WEB_APP_URL=$(az deployment group show \
+    CONTAINER_APP_URL=$(az deployment group show \
         --resource-group "$RG_NAME" \
         --name "$(az deployment group list --resource-group "$RG_NAME" --query "[0].name" -o tsv)" \
-        --query properties.outputs.webAppUrl.value -o tsv)
+        --query properties.outputs.containerAppUrl.value -o tsv)
     
     APIM_GATEWAY_URL=$(az deployment group show \
         --resource-group "$RG_NAME" \
@@ -146,12 +154,12 @@ get_outputs() {
     print_info "Deployment completed successfully!"
     print_info "=========================================="
     echo ""
-    echo "Web App URL: $WEB_APP_URL"
+    echo "Container App URL: $CONTAINER_APP_URL"
     echo "APIM Gateway URL: $APIM_GATEWAY_URL"
     echo "MCP API Endpoint: $MCP_API_PATH"
     echo ""
     print_info "To test the health endpoint, run:"
-    echo "  curl $WEB_APP_URL/health"
+    echo "  curl $CONTAINER_APP_URL/health"
     echo ""
     print_info "To get APIM subscription key, run:"
     echo "  az apim subscription list --resource-group $RG_NAME --service-name <apim-name> --output table"
@@ -164,7 +172,7 @@ main() {
     
     # Default values
     RESOURCE_GROUP="${RESOURCE_GROUP:-travel-mcp-rg}"
-    LOCATION="${LOCATION:-eastus}"
+    LOCATION="${LOCATION:-westus}"
     PARAMS_FILE="${PARAMS_FILE:-infra/main.parameters.json}"
     
     # Check prerequisites
@@ -179,14 +187,27 @@ main() {
     # Deploy infrastructure
     deploy_infrastructure "$RESOURCE_GROUP" "$PARAMS_FILE"
     
-    # Get the Web App name from deployment outputs
-    WEB_APP_NAME=$(az deployment group show \
+    # Get outputs from deployment
+    ACR_NAME=$(az deployment group show \
         --resource-group "$RESOURCE_GROUP" \
         --name "$(az deployment group list --resource-group "$RESOURCE_GROUP" --query "[0].name" -o tsv)" \
-        --query properties.outputs.webAppName.value -o tsv)
+        --query properties.outputs.acrName.value -o tsv)
     
-    # Deploy application
-    deploy_application "$RESOURCE_GROUP" "$WEB_APP_NAME"
+    ACR_LOGIN_SERVER=$(az deployment group show \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$(az deployment group list --resource-group "$RESOURCE_GROUP" --query "[0].name" -o tsv)" \
+        --query properties.outputs.acrLoginServer.value -o tsv)
+    
+    CONTAINER_APP_NAME=$(az deployment group show \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$(az deployment group list --resource-group "$RESOURCE_GROUP" --query "[0].name" -o tsv)" \
+        --query properties.outputs.containerAppName.value -o tsv)
+    
+    # Build and push container
+    build_and_push_container "$RESOURCE_GROUP" "$ACR_NAME"
+    
+    # Update container app
+    update_container_app "$RESOURCE_GROUP" "$CONTAINER_APP_NAME" "$ACR_LOGIN_SERVER"
     
     # Show outputs
     get_outputs "$RESOURCE_GROUP"
